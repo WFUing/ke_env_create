@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: network-receiver
+  namespace: monitoring
+  labels:
+    app: network-receiver
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: network-receiver
+  template:
+    metadata:
+      labels:
+        app: network-receiver
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: node-role.kubernetes.io/edge
+                operator: DoesNotExist
+      containers:
+      - name: network-receiver
+        image: september9/network-receiver:v1.0 # 替换为你的镜像地址
+        ports:
+        - containerPort: 8080
+        env:
+        - name: PUSHGATEWAY_URL
+          value: "http://pushgateway.monitoring.svc.cluster.local:9091"  # 修改为服务 DNS 名称
+        - name: FLASK_PORT
+          value: "8080"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: network-test-service
+  namespace: monitoring
+  labels:
+    app: network-receiver
+spec:
+  selector:
+    app: network-receiver
+  ports:
+  - protocol: TCP
+    port: 18080       # Service 暴露的端口
+    targetPort: 8080  # Pod 中容器的端口
+    nodePort: 30080   # NodePort 暴露的端口
+  type: NodePort

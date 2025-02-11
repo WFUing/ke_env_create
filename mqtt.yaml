@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mosquitto
+  namespace: kubeedge
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mosquitto
+  template:
+    metadata:
+      labels:
+        app: mosquitto
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: edge3  # 确保部署在 edge3 节点上
+      containers:
+      - name: mosquitto
+        image: docker.io/library/eclipse-mosquitto:1.6.15
+        ports:
+        - containerPort: 1883
+          name: mqtt

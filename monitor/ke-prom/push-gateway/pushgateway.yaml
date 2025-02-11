@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pushgateway
+  namespace: monitoring
+  labels:
+    app: pushgateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pushgateway
+  template:
+    metadata:
+      labels:
+        app: pushgateway
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: node-role.kubernetes.io/edge
+                operator: DoesNotExist
+      containers:
+      - name: pushgateway
+        image: prom/pushgateway:v1.11.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 9091
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "500m"
+        args:
+          - "--web.enable-lifecycle"  # 启用 HTTP API，支持清理数据
+        volumeMounts:
+        - name: pushgateway-data
+          mountPath: /data
+      volumes:
+      - name: pushgateway-data
+        emptyDir: {}  # 如果需要持久化存储，可以改为 PersistentVolumeClaim
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pushgateway
+  namespace: monitoring
+  labels:
+    app: pushgateway
+spec:
+  ports:
+  - port: 9091
+    targetPort: 9091
+    protocol: TCP
+    nodePort: 30091
+  selector:
+    app: pushgateway
+  type: NodePort

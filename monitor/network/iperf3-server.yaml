@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: iperf3-server-daemonset
+  namespace: monitoring
+  labels:
+    app: iperf3-server
+spec:
+  selector:
+    matchLabels:
+      app: iperf3-server
+  template:
+    metadata:
+      labels:
+        app: iperf3-server
+    spec:
+      containers:
+      - name: iperf3-server-container
+        image: networkstatic/iperf3
+        args: ["-s"]  # 以服务器模式启动 iperf3
+        env:
+        - name: CURRENT_NODE_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.hostIP
+        ports:
+        - containerPort: 5201
+          hostPort: 5201  # 将容器端口 5201 映射到节点的 5201 端口
+      restartPolicy: Always

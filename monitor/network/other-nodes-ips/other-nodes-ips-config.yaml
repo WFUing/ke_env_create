@@ -1,0 +1,30 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: update-all-nodes-ips
+  namespace: monitoring
+spec:
+  template:
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: node-role.kubernetes.io/edge
+                operator: DoesNotExist
+      containers:
+      - name: get-all-nodes-ips
+        image: bitnami/kubectl:latest
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            # 获取所有节点的 Internal IP 地址
+            ALL_NODES_IPS=$(kubectl get nodes -o jsonpath='{.items[*].status.addresses[?(@.type=="InternalIP")].address}')
+            # 将所有 IP 转换为逗号分隔的字符串
+            ALL_NODES_IPS=$(echo $ALL_NODES_IPS | tr ' ' ',' | sed 's/,$//')
+            # sleep 3600  # 添加一个睡眠命令
+            # 更新 ConfigMap
+            kubectl patch configmap other-nodes-ips-config -p '{"data": {"other_nodes_ips": "'"$ALL_NODES_IPS"'"}}' -n monitoring
+      restartPolicy: OnFailure
+      serviceAccountName: update-nodes-sa  # 确保有正确权限的 ServiceAccount

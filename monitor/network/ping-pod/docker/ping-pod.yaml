@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: network-test-daemonset
+  namespace: monitoring
+  labels:
+    app: network-test
+spec:
+  selector:
+    matchLabels:
+      app: network-test
+  template:
+    metadata:
+      labels:
+        app: network-test
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: node-role.kubernetes.io/edge
+                operator: Exists
+      containers:
+      - name: network-test-container
+        image: september9/network-test:v1.0
+        env:
+        - name: CURRENT_NODE_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.hostIP
+        - name: OTHER_NODES_IPS
+          valueFrom:
+            configMapKeyRef:
+              name: other-nodes-ips-config
+              key: other_nodes_ips
+        - name: SLEEP_TIME
+          value: "60"  # 替换为实际的睡眠间隔时间
+      restartPolicy: Always

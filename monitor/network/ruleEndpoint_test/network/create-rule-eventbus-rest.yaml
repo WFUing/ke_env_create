@@ -1,0 +1,11 @@
+apiVersion: rules.kubeedge.io/v1
+kind: Rule
+metadata:
+  name: network-eventbus-rest
+  labels:
+    description: network
+spec:
+  source: "my-eventbus"
+  sourceResource: {"topic": "network","node_name": "edge3"}
+  target: "my-rest"
+  targetResource: {"resource":"http://127.0.0.1:30080/network"}

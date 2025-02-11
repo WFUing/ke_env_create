@@ -1,0 +1,1 @@
+mosquitto_pub -t 'default/test' -d -m '{"test":"message"}'
