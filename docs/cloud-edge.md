@@ -1,33 +1,21 @@
-[TOC]
-
-# 边缘网络不稳定时的自治问题
-
-## 场景描述：
-
-边缘节点处于网络不稳定的场景中，随时有可能与云端断网，因此需要编写一个**路由规则**（配置一个代理），在网络畅通时访问云端服务，网络不畅时访问边缘服务。
 
 ## kubeedge 安装：
 
 ### 环境搭建：
 
+- cloudcore：云端安装 k8s
+- edgecore：边端安装containerd
+
 #### 1. 安装docker/containerd
 
-[docker安装官网,ubuntu](https://docs.docker.com/engine/install/ubuntu/)
+docker安装方式，**安装前记得配置代理**
 
-[docker安装官网,centos](https://docs.docker.com/engine/install/centos/)
+- https://mirrors.tuna.tsinghua.edu.cn/help/docker-ce/
 
 记得替换repo为国内镜像，如阿里云
 
-```sh
-# ubuntu
-https://download.docker.com/linux/ubuntu/
-=>
-https://mirrors.aliyun.com/docker-ce/linux/ubuntu/
-
-# centos
-https://download.docker.com/linux/centos/
-=>
-https://mirrors.aliyun.com/docker-ce/linux/centos/
+```bash
+apt install containerd
 ```
 
 containerd会使用apt连同docker engine一同下载，但需要修改配置
@@ -37,7 +25,10 @@ containerd会使用apt连同docker engine一同下载，但需要修改配置
 containerd config default > /etc/containerd/config.toml
 
 # 修改配置
-sandbox_image = "registry.cn-hangzhou.aliyuncs.com/google_containers/pause:3.8"
+# sandbox_image = "registry.cn-hangzhou.aliyuncs.com/google_containers/pause:3.8"
+# edgecore节点配置
+[plugins."io.containerd.grpc.v1.cri"]
+  sandbox_image = "kubeedge/pause:3.6"
 SystemdCgroup = true # 注意不是systemd_cgroup = true！！
 
 # 重启服务
@@ -126,6 +117,12 @@ sudo apt-get update
 sudo apt-get install -y kubelet=1.27.0-00 kubeadm=1.27.0-00 kubectl=1.27.0-00
 ```
 
+用下面的初始化，后面的flannel会需要pod-network-cidr参数
+
+```bash
+kubeadm init --pod-network-cidr=10.244.0.0/16
+```
+
 ![](images/eee.png)
 
 这次初始化遇到三个问题
@@ -212,7 +209,6 @@ br_netfilter
 EOF
 ```
 
-
 然后可以先**拉取镜像**
 
 ```sh
@@ -243,50 +239,6 @@ registry.k8s.io/coredns/coredns:v1.10.1
 
 ![](images/dd.png)
 
-
-创建集群时在创建`control plane`时可能一直hangs，直到超时。
-
-创建集群启动kubelet时需要使得kubelet的CgroupDriver和容器运行时的相同，如果`docker info | grep "Cgroup"`出来的结果是systemd，那么kubelet的CgroupDriver也应该保持一致。
-
-```yaml
-apiVersion: kubeadm.k8s.io/v1beta2
-kind: ClusterConfiguration
-kubernetesVersion: v1.20.9
-controlPlaneEndpoint: 192.168.1.226:6443
-imageRepository: registry.cn-hangzhou.aliyuncs.com/google_containers
-networking:
-  serviceSubnet: 10.96.0.0/16
-  podSubnet: 172.31.0.0/16
----
-kind: KubeletConfiguration
-apiVersion: kubelet.config.k8s.io/v1beta1
-cgroupDriver: systemd
-```
-
-> 注意：下面的方式会让nodeport类型的service在使用localhost:nodePort的时候失效！
-
-创建集群时kubeproxy使用`ipvs`模式，也可以在创建`control plane`时解决一直hangs的问题，这需要：
-
-```sh
-sudo cat <<EOF >> /etc/sysctl.conf
-net.ipv4.ip_forward = 1
-net.bridge.bridge-nf-call-iptables = 1
-net.bridge.bridge-nf-call-ip6tables = 1
-vm.swappiness = 0
-EOF
-
-cat <<EOF >> /etc/modules
-ip_vs
-ip_vs_rr
-ip_vs_wrr
-ip_vs_sh
-nf_conntrack
-nf_conntrack_ipv4
-nf_conntrack_ipv6
-br_netfilter
-EOF
-```
-
 创建`kubeadm-config.yaml`文件：
 
 ```yaml
@@ -310,19 +262,45 @@ mode: ipvs
 kubeadm init --config kubeadm-config.yaml
 ```
 
-#### 4. 安装go环境
+#### 4. 边端环境配置
 
-包括 [go包安装](https://go.dev/doc/install)，[go工作目录设置](https://github.com/golang/go/wiki/SettingGOPATH)，helloworld运行 3步
+除了上面安装containerd，还需要配置cni
 
-详细说明见[安装笔记](https://www.jianshu.com/p/c43ebab25484)
+下载 CNI 插件版本并解压：
 
-[各版本包地址](https://go.dev/dl/)（本例使用v1.17.13）
+```bash
+wget https://github.com/containernetworking/plugins/releases/download/v0.8.2/cni-plugins-linux-amd64-v0.8.2.tgz
 
-注意，在运行helloworld之前(确切地说，应该是go build前)，需要运行
+# Extract the tarball
+mkdir cni
+tar -zxvf v0.2.0.tar.gz -C cni
 
-```sh
-go env -w GOPATH=$HOME/go
-go env -w GO111MODULE=auto
+mkdir -p /opt/cni/bin
+cp ./cni/* /opt/cni/bin/
+```
+
+配置 CNI 插件：
+
+```bash
+mkdir -p /etc/cni/net.d/
+
+cat >/etc/cni/net.d/bridge.conf <<EOF
+{
+  "cniVersion": "0.3.1",
+  "name": "containerd-net",
+  "type": "bridge",
+  "bridge": "cni0",
+  "isGateway": true,
+  "ipMasq": true,
+  "ipam": {
+    "type": "host-local",
+    "subnet": "10.88.0.0/16",
+    "routes": [
+      { "dst": "0.0.0.0/0" }
+    ]
+  }
+}
+EOF
 ```
 
 #### 5. 安装kubeedge
@@ -336,63 +314,11 @@ kubeadm join 192.168.28.45:6443 --token ccs0oj.37ymulijl1ivqmve \
 
 ##### 云端和边缘端 keadm安装：
 
-```sh
-wget https://github.com/kubeedge/kubeedge/releases/download/v1.17.0/keadm-v1.17.0-linux-amd64.tar.gz
-tar -xvf keadm-v1.17.0-linux-amd64.tar.gz
-cd keadm-v1.17.0-linux-amd64/keadm
-cp keadm /usr/local/bin/
+```bash
+wget https://github.com/kubeedge/kubeedge/releases/download/v1.19.0/keadm-v1.19.0-linux-amd64.tar.gz
+tar -zxvf keadm-v1.19.0-linux-amd64.tar.gz
+cp keadm-v1.19.0-linux-amd64/keadm/keadm /usr/local/bin/keadm
 ```
-
-##### 云端：
-
-> 使用keadm deprecated init  !!!
->
-> 不要使用 keadm init
-
-sudo kubeadm init --pod-network-cidr=10.244.0.0/16
-
-```sh
-keadm deprecated init --kubeedge-version=1.19.0 --advertise-address=192.168.28.45 --kube-config=$HOME/.kube/config 
-
-keadm gettoken --kube-config=$HOME/.kube/config 
-keadm reset --kube-config=$HOME/.kube/config 
-```
-sudo keadm join --cloudcore-ipport=192.168.0.104:10000 --token=163daa1b34b16c7cd82269195878f279dc81e90457b409dd2d6fbeca0918d521.eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3MzgwNzQ3MzF9.iOd_tTQWSsHW9NBpSMMv29QFt6wIsTm18beS-1J4dvg --kubeedge-version=v1.19.0 --cgroupdriver=systemd --edgenode-name=edge3 --with-mqtt
-
---profile version=v1.19.0
-keadm init --advertise-address=192.168.0.104 --kubeedge-version=v1.19.0 --kube-config=$HOME/.kube/config --set cloudCore.modules.dynamicController.enable=true,cloudCore.featureGates.requireAuthorization=true
-
-
-sudo systemctl stop edgecore
-sudo crictl stopp $(sudo crictl pods -q)
-sudo crictl rmp $(sudo crictl pods -q)
-sudo crictl rmi $(sudo crictl images -q)
-
-sudo rm -f /var/lib/kubeedge/edgecore.db
-
-ubuntu@edge3:~$ sudo sqlite3 /var/lib/kubeedge/edgecore.db
-SQLite version 3.45.1 2024-01-30 16:01:20
-Enter ".help" for usage hints.
-sqlite> SELECT * FROM meta WHERE type='pod';
-
-
-kubeadm init --pod-network-cidr=10.244.0.0/16
-
-kubectl drain edge2 --ignore-daemonsets --delete-emptydir-data
-
-kubectl patch daemonset kube-proxy -n kube-system -p '{"spec": {"template": {"spec": {"affinity": {"nodeAffinity": {"requiredDuringSchedulingIgnoredDuringExecution": {"nodeSelectorTerms": [{"matchExpressions": [{"key": "node-role.kubernetes.io/edge", "operator": "DoesNotExist"}]}]}}}}}}}'
-
-kubectl apply -f build/crds/istio/
-kubectl apply -f build/agent/resources/
-
-
-sudo ctr -n k8s.io images list | awk '{if(NR>1) print $1}' | xargs -I {} sudo ctr -n k8s.io images rm {}
-sudo ctr -n k8s.io task list | awk '{if(NR>1) print $1}' | xargs -I {} sudo ctr -n k8s.io task kill {}
-sudo ctr -n k8s.io containers list | awk '{if(NR>1) print $1}' | xargs -I {} sudo ctr -n k8s.io containers delete {}
-kubectl get pods --all-namespaces -o wide | grep edge3 | awk '{print $2" -n "$1}' | xargs -I {} kubectl delete pod {} --grace-period=0 --force
-
-kubectl taint node edge3 node.kubernetes.io/not-ready:NoExecute-
-kubectl taint node edge3 node.kubernetes.io/not-ready:NoSchedule-
 
 
 下载yaml、包时可能会因为gfw导致中断，只需要在相应路径中补齐即可。
@@ -422,6 +348,66 @@ https://raw.githubusercontent.com/kubeedge/kubeedge/release-1.17/build/crds/devi
 │   ├── ......
 └── kubeedge-v1.12.0-linux-amd64.tar.gz
 ```
+
+##### 云端：
+
+用下面的初始化，后面的flannel会需要pod-network-cidr参数
+
+```bash
+kubeadm init --pod-network-cidr=10.244.0.0/16
+```
+
+启动云端
+
+```bash
+keadm init --advertise-address=192.168.0.104 --kubeedge-version=v1.19.0 --kube-config=$HOME/.kube/config --set cloudCore.modules.dynamicController.enable=true,cloudCore.featureGates.requireAuthorization=true
+# keadm deprecated init --kubeedge-version=1.19.0 --advertise-address=192.168.28.45 --kube-config=$HOME/.kube/config 
+# --profile version=v1.19.0
+
+keadm gettoken --kube-config=$HOME/.kube/config 
+
+keadm reset --kube-config=$HOME/.kube/config 
+
+kubectl taint node edge3 node.kubernetes.io/not-ready:NoExecute-
+kubectl taint node edge3 node.kubernetes.io/not-ready:NoSchedule-
+
+kubectl drain edge2 --ignore-daemonsets --delete-emptydir-data
+
+```
+
+边端加入
+
+```bash
+sudo keadm join --cloudcore-ipport=192.168.0.104:10000 --token=163daa1b34b16c7cd82269195878f279dc81e90457b409dd2d6fbeca0918d521.eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3MzgwNzQ3MzF9.iOd_tTQWSsHW9NBpSMMv29QFt6wIsTm18beS-1J4dvg --kubeedge-version=v1.19.0 --cgroupdriver=systemd --edgenode-name=edge3 --with-mqtt
+```
+
+
+清除边端环境
+
+```bash
+
+sudo systemctl stop edgecore
+sudo crictl stopp $(sudo crictl pods -q)
+sudo crictl rmp $(sudo crictl pods -q)
+sudo crictl rmi $(sudo crictl images -q)
+
+sudo ctr -n k8s.io images list | awk '{if(NR>1) print $1}' | xargs -I {} sudo ctr -n k8s.io images rm {}
+sudo ctr -n k8s.io task list | awk '{if(NR>1) print $1}' | xargs -I {} sudo ctr -n k8s.io task kill {}
+sudo ctr -n k8s.io containers list | awk '{if(NR>1) print $1}' | xargs -I {} sudo ctr -n k8s.io containers delete {}
+kubectl get pods --all-namespaces -o wide | grep edge3 | awk '{print $2" -n "$1}' | xargs -I {} kubectl delete pod {} --grace-period=0 --force
+
+
+sudo rm -f /var/lib/kubeedge/edgecore.db
+
+# 可以这样进入数据库查看信息
+sudo sqlite3 /var/lib/kubeedge/edgecore.db
+
+ubuntu@edge3:~$ 
+SQLite version 3.45.1 2024-01-30 16:01:20
+Enter ".help" for usage hints.
+sqlite> SELECT * FROM meta WHERE type='pod';
+```
+
 
 ##### 边缘端：
 
