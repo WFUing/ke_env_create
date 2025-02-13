@@ -1,0 +1,95 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tf-serving-config
+data:
+  models.config: |
+    model_config_list: {
+      config: {
+        name: "yolov3",
+        base_path: "/models/yolov3",
+        model_platform: "tensorflow"
+      },
+      config: {
+        name: "yolov3-tiny",
+        base_path: "/models/yolov3-tiny",
+        model_platform: "tensorflow"
+      },
+      config: {
+        name: "yolov4-416",
+        base_path: "/models/yolov4-416",
+        model_platform: "tensorflow"
+      },
+      config: {
+        name: "yolov4-tiny-416",
+        base_path: "/models/yolov4-tiny-416",
+        model_platform: "tensorflow"
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tf-serving-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tf-serving
+  template:
+    metadata:
+      labels:
+        app: tf-serving
+    spec:
+      containers:
+      - name: tf-serving
+        image: september9/serving:2.3.0-sse
+        # 启动脚本使用 /usr/bin/tf_serving_entrypoint.sh，并传入配置文件参数及轮询间隔
+        command: ["/usr/bin/tf_serving_entrypoint.sh"]
+        args: [
+          "--model_config_file=/models/models.config",
+          "--model_config_file_poll_wait_seconds=60"
+        ]
+        ports:
+        - containerPort: 8500
+        - containerPort: 8501
+        resources:
+          limits:
+            cpu: "2"
+            memory: "3Gi"
+          requests:
+            cpu: "2"
+            memory: "3Gi"
+        volumeMounts:
+        # 挂载整个模型目录，容器内 /models 下将包含 yolov3、yolov3-tiny、yolov4-416、yolov4-tiny-416 四个目录
+        - name: models-volume
+          mountPath: /models
+        # 挂载 ConfigMap 中的 models.config 文件到容器 /models/models.config（使用 subPath 挂载单个文件）
+        - name: config-volume
+          mountPath: /models/models.config
+          subPath: models.config
+      volumes:
+      - name: models-volume
+        hostPath:
+          path: /home/ubuntu/models
+          type: Directory
+      - name: config-volume
+        configMap:
+          name: tf-serving-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tf-serving-service
+spec:
+  selector:
+    app: tf-serving
+  ports:
+  - name: grpc
+    port: 8500
+    targetPort: 8500
+  - name: rest
+    port: 8501
+    targetPort: 8501
+  type: NodePort

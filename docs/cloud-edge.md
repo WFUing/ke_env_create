@@ -408,6 +408,32 @@ Enter ".help" for usage hints.
 sqlite> SELECT * FROM meta WHERE type='pod';
 ```
 
+kubectl apply -f https://raw.githubusercontent.com/kubeedge/kubeedge/master/build/deployment.yaml
+
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-svc
+  namespace: default
+spec:
+  type: ClusterIP
+  selector:
+    app: nginx
+  ports:
+    - name: http-0
+      port: 12345
+      protocol: TCP
+      targetPort: 80
+EOF
+
+kubectl run curlpod --image=radial/busyboxplus:curl -i --tty --rm --overrides='{"spec":{"nodeName":"edge3"}}'
+
+sudo iptables -F
+sudo iptables -X
+sudo iptables -t nat -F
+sudo iptables -t nat -X
+sudo systemctl restart containerd
 
 ##### 边缘端：
 
@@ -445,6 +471,11 @@ sudo ctr -n k8s.io images import  edgemesh-agent-v1.17.0.tar
 ```
 kubectl get nodes
 ```
+
+##### 边端配置
+
+- https://release-1-19.docs.kubeedge.io/docs/advanced/metrics
+- https://release-1-19.docs.kubeedge.io/docs/advanced/debug
 
 ### 场景模拟：
 

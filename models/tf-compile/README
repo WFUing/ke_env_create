@@ -1,0 +1,399 @@
+# 编译tf-serve
+
+
+
+因为我要在tf-serve docker2.3.0版本中应用编译完的tf，来应对没有avx和avx2的情况，所以我在这台机器上编译
+
+但是限制条件很多
+
+环境清单如下
+
+- Python 3.6.9 
+- NumPy 1.18.5
+- bazel 3.1.0
+- gcc 7.5.0-3ubuntu1~18.04
+- g++ 7.5.0-3ubuntu1~18.04
+
+
+```bash
+gcc --version
+g++ --version
+bazel --version
+ls /usr/lib/gcc/x86_64-linux-gnu/7/include/
+python -c "import numpy; print(numpy.__version__)"
+```
+
+- gcc 7.5.0-3ubuntu1~18.04
+- g++ 7.5.0-3ubuntu1~18.04
+
+```bash
+(py36) (base) ubuntu@edge3:~/keas-edge/$ gcc --version
+gcc (Ubuntu 7.5.0-3ubuntu1~18.04) 7.5.0
+Copyright (C) 2017 Free Software Foundation, Inc.
+This is free software; see the source for copying conditions.  There is NO
+warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+(py36) (base) ubuntu@edge3:~/keas-edge/$ g++ --version
+g++ (Ubuntu 7.5.0-3ubuntu1~18.04) 7.5.0
+Copyright (C) 2017 Free Software Foundation, Inc.
+This is free software; see the source for copying conditions.  There is NO
+warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+```
+
+- bazel 3.1.0
+
+```bash
+(py36) (base) ubuntu@edge3:~/keas-edge/$ bazel --version
+bazel 3.1.0
+```
+
+依赖包
+
+```bash
+(py36) (base) ubuntu@edge3:~/keas-edge/$ ls /usr/lib/gcc/x86_64-linux-gnu/7/include/
+adxintrin.h           avx512pfintrin.h         bmmintrin.h         fxsrintrin.h    omp.h            shaintrin.h    tmmintrin.h
+ammintrin.h           avx512vbmiintrin.h       cilk                gcov.h          openacc.h        smmintrin.h    unwind.h
+avx2intrin.h          avx512vbmivlintrin.h     clflushoptintrin.h  ia32intrin.h    pkuintrin.h      stdalign.h     varargs.h
+avx5124fmapsintrin.h  avx512vlbwintrin.h       clwbintrin.h        immintrin.h     pmmintrin.h      stdarg.h       wmmintrin.h
+avx5124vnniwintrin.h  avx512vldqintrin.h       clzerointrin.h      iso646.h        popcntintrin.h   stdatomic.h    x86intrin.h
+avx512bwintrin.h      avx512vlintrin.h         cpuid.h             lwpintrin.h     prfchwintrin.h   stdbool.h      xmmintrin.h
+avx512cdintrin.h      avx512vpopcntdqintrin.h  cross-stdarg.h      lzcntintrin.h   quadmath.h       stddef.h       xopintrin.h
+avx512dqintrin.h      avxintrin.h              emmintrin.h         mm3dnow.h       quadmath_weak.h  stdfix.h       xsavecintrin.h
+avx512erintrin.h      backtrace.h              f16cintrin.h        mmintrin.h      rdseedintrin.h   stdint-gcc.h   xsaveintrin.h
+avx512fintrin.h       backtrace-supported.h    float.h             mm_malloc.h     rtmintrin.h      stdint.h       xsaveoptintrin.h
+avx512ifmaintrin.h    bmi2intrin.h             fma4intrin.h        mwaitxintrin.h  sanitizer        stdnoreturn.h  xsavesintrin.h
+avx512ifmavlintrin.h  bmiintrin.h              fmaintrin.h         nmmintrin.h     sgxintrin.h      tbmintrin.h    xtestintrin.h
+
+```bash
+(py36) (base) ubuntu@edge3:~/keas-edge/$ python -c "import numpy; print(numpy.__version__)"
+1.18.5
+```
+
+```bash
+(py36) (base) ubuntu@edge3:~/keas-edge/env/gcc7-downloads$ strings /usr/lib/x86_64-linux-gnu/libstdc++.so.6 | grep GLIBCXX
+GLIBCXX_3.4
+GLIBCXX_3.4.1
+GLIBCXX_3.4.2
+GLIBCXX_3.4.3
+GLIBCXX_3.4.4
+GLIBCXX_3.4.5
+GLIBCXX_3.4.6
+GLIBCXX_3.4.7
+GLIBCXX_3.4.8
+GLIBCXX_3.4.9
+GLIBCXX_3.4.10
+GLIBCXX_3.4.11
+GLIBCXX_3.4.12
+GLIBCXX_3.4.13
+GLIBCXX_3.4.14
+GLIBCXX_3.4.15
+GLIBCXX_3.4.16
+GLIBCXX_3.4.17
+GLIBCXX_3.4.18
+GLIBCXX_3.4.19
+GLIBCXX_3.4.20
+GLIBCXX_3.4.21
+GLIBCXX_3.4.22
+GLIBCXX_3.4.23
+GLIBCXX_3.4.24
+GLIBCXX_3.4.25
+GLIBCXX_3.4.26
+GLIBCXX_3.4.27
+GLIBCXX_3.4.28
+GLIBCXX_3.4.29
+GLIBCXX_3.4.30
+GLIBCXX_3.4.31
+GLIBCXX_3.4.32
+GLIBCXX_3.4.33
+GLIBCXX_TUNABLES
+GLIBCXX_DEBUG_MESSAGE_LENGTH
+```
+
+## 下载环境
+
+gcc 7.5 下载
+
+```bash
+mkdir -p ~/gcc7-downloads && cd ~/gcc7-downloads
+
+wget http://archive.ubuntu.com/ubuntu/pool/main/g/gcc-7/gcc-7_7.5.0-3ubuntu1~18.04_amd64.deb
+wget http://archive.ubuntu.com/ubuntu/pool/main/g/gcc-7/g++-7_7.5.0-3ubuntu1~18.04_amd64.deb
+wget http://archive.ubuntu.com/ubuntu/pool/main/g/gcc-7/gcc-7-base_7.5.0-3ubuntu1~18.04_amd64.deb
+wget http://archive.ubuntu.com/ubuntu/pool/main/g/gcc-7/cpp-7_7.5.0-3ubuntu1~18.04_amd64.deb
+wget http://archive.ubuntu.com/ubuntu/pool/main/g/gcc-7/libgcc-7-dev_7.5.0-3ubuntu1~18.04_amd64.deb
+wget http://archive.ubuntu.com/ubuntu/pool/main/g/gcc-7/libstdc++-7-dev_7.5.0-3ubuntu1~18.04_amd64.deb
+wget http://archive.ubuntu.com/ubuntu/pool/main/g/gcc-7/libasan4_7.5.0-3ubuntu1~18.04_amd64.deb
+wget http://archive.ubuntu.com/ubuntu/pool/main/g/gcc-7/libubsan0_7.5.0-3ubuntu1~18.04_amd64.deb
+wget http://archive.ubuntu.com/ubuntu/pool/main/g/gcc-7/libcilkrts5_7.5.0-3ubuntu1~18.04_amd64.deb
+# wget http://archive.ubuntu.com/ubuntu/pool/main/g/gcc-7/libisl22_0.22-1_amd64.deb
+```
+
+请按照下面的步骤在当前目录下依次安装这些包，这样可以确保依赖关系正确满足。
+
+切换到存放这些包的目录，打开终端，进入你存放这些 .deb 文件的目录：
+
+```bash
+cd ~/env/gcc7-downloads
+```
+
+按顺序安装各个包，依赖顺序建议如下（先安装基础库，再安装编译工具）：
+
+安装 gcc-7-base：
+
+```bash
+sudo dpkg -i gcc-7-base_7.5.0-3ubuntu1~18.04_amd64.deb
+```
+
+安装基础运行时支持库（libasan4、libubsan0、libcilkrts5）：
+
+```bash
+sudo dpkg -i libasan4_7.5.0-3ubuntu1~18.04_amd64.deb
+sudo dpkg -i libubsan0_7.5.0-3ubuntu1~18.04_amd64.deb
+sudo dpkg -i libcilkrts5_7.5.0-3ubuntu1~18.04_amd64.deb
+```
+
+安装 C/C++ 预处理器包：
+
+```bash
+sudo dpkg -i cpp-7_7.5.0-3ubuntu1~18.04_amd64.deb
+```
+
+安装开发所需的支持库：
+
+```bash
+sudo dpkg -i libgcc-7-dev_7.5.0-3ubuntu1~18.04_amd64.deb
+sudo dpkg -i libstdc++-7-dev_7.5.0-3ubuntu1~18.04_amd64.deb
+```
+
+最后安装编译器：
+
+```bash
+sudo dpkg -i gcc-7_7.5.0-3ubuntu1~18.04_amd64.deb
+sudo dpkg -i g++-7_7.5.0-3ubuntu1~18.04_amd64.deb
+```
+
+修复可能的依赖问题
+如果在上述过程中出现依赖错误，可以运行：
+
+```bash
+sudo apt --fix-broken install -y
+```
+
+这会自动安装缺失的依赖。然后再重复安装步骤 2 中未成功安装的包。
+
+验证安装情况，检查 GCC 和 G++ 版本，确保都显示 7.5.0：
+
+```bash
+gcc --version
+g++ --version
+```
+
+输出应该类似于：
+
+```
+gcc (Ubuntu 7.5.0-3ubuntu1~18.04) 7.5.0
+g++ (Ubuntu 7.5.0-3ubuntu1~18.04) 7.5.0
+```
+
+设置默认编译器（如果需要），如果系统中有多个 GCC 版本，可使用 update-alternatives 切换到新安装的版本：
+
+```bash
+sudo update-alternatives --config gcc
+sudo update-alternatives --config g++
+```
+
+```bash
+(py36) (base) ubuntu@edge3:~/keas-edge/env/gcc7-downloads$ sudo update-alternatives --config gcc
+There are 3 choices for the alternative gcc (providing /usr/bin/gcc).
+
+  Selection    Path            Priority   Status
+------------------------------------------------------------
+  0            /usr/bin/gcc-9   100       auto mode
+* 1            /usr/bin/gcc-7   70        manual mode
+  2            /usr/bin/gcc-8   70        manual mode
+  3            /usr/bin/gcc-9   100       manual mode
+
+Press <enter> to keep the current choice[*], or type selection number: 1
+
+(py36) (base) ubuntu@edge3:~/keas-edge/env/gcc7-downloads$ sudo update-alternatives --config g++
+There are 3 choices for the alternative g++ (providing /usr/bin/g++).
+
+  Selection    Path            Priority   Status
+------------------------------------------------------------
+  0            /usr/bin/g++-9   100       auto mode
+* 1            /usr/bin/g++-7   70        manual mode
+  2            /usr/bin/g++-8   70        manual mode
+  3            /usr/bin/g++-9   100       manual mode
+
+Press <enter> to keep the current choice[*], or type selection number: 1
+```
+
+## 编译tf
+
+下载仓库
+
+```bash
+git clone https://github.com/tensorflow/tensorflow.git
+
+git pull && git checkout v2.3.0
+```
+
+配置
+
+```bash
+./configure
+
+Please input the desired Python library path to use.  Default is [/usr/lib/python3/dist-packages]
+
+Do you wish to build TensorFlow with ROCm support? [y/N]:
+No ROCm support will be enabled for TensorFlow.
+
+Do you wish to build TensorFlow with CUDA support? [y/N]:
+No CUDA support will be enabled for TensorFlow.
+
+Do you wish to download a fresh release of clang? (Experimental) [y/N]:
+Clang will not be downloaded.
+
+Please specify optimization flags to use during compilation when bazel option "--config=opt" is specified [Default is -Wno-sign-compare]: -Wno-sign-compare -mno-avx2 -mno-avx -march=core2
+
+
+Would you like to interactively configure ./WORKSPACE for Android builds? [y/N]:
+Not configuring the WORKSPACE for Android builds.
+
+Preconfigured Bazel build configs. You can use any of the below by adding "--config=<>" to your build command. See .bazelrc for more details.
+        --config=mkl            # Build with MKL support.
+        --config=mkl_aarch64    # Build with oneDNN and Compute Library for the Arm Architecture (ACL).
+        --config=monolithic     # Config for mostly static monolithic build.
+        --config=numa           # Build with NUMA support.
+        --config=dynamic_kernels        # (Experimental) Build kernels into separate shared objects.
+        --config=v1             # Build with TensorFlow 1 API instead of TF 2 API.
+Preconfigured Bazel build configs to DISABLE default on features:
+        --config=nogcp          # Disable GCP support.
+        --config=nonccl         # Disable NVIDIA NCCL support.
+Configuration finished
+
+```
+
+唯一非默认设置是关于优化标志的部分，它禁用 `AVX/AVX2：-Wno-sign-compare -mno-avx2 -mno-avx -march=core2`
+
+```bash
+bazel clean --expunge
+bazel build //tensorflow/tools/pip_package:build_pip_package
+bazel build --config=opt //tensorflow/tools/pip_package:build_pip_package
+```
+
+构建 pip 
+
+```bash
+./bazel-bin/tensorflow/tools/pip_package/build_pip_package /mnt
+```
+
+## 编译 tf-serve
+
+在镜像中编译
+
+```bash
+docker run -it --rm tensorflow/serving:2.3.0-devel bash
+# 将 .whl 文件复制到 Docker 容器内
+docker cp /home/ubuntu/keas-edge/models/whls/tensorflow-2.3.0-cp36-cp36m-linux_x86_64.whl <container_id>:/tmp
+# 安装 .whl 文件
+pip install /tmp/tensorflow-2.3.0-cp36-cp36m-linux_x86_64.whl
+# 验证安装
+python -c "import tensorflow as tf; print(tf.__version__)"
+# 编译
+./configure
+# 
+bazel build //tensorflow_serving/model_servers:tensorflow_model_server
+
+```
+
+```bash
+./bazel-bin/tensorflow_serving/model_servers/tensorflow_model_server --rest_api_port=8501 --model_name=my_model --model_base_path=/path/to/your/model
+```
+
+把这个tensorflow_model_server导出，到另一个docker直接运行，并配置
+
+```bash
+docker run --cpus=2 --memory=3g -p 8500:8500 -p 8501:8501 \
+--mount type=bind,source=/home/ubuntu/keas-edge/models/tensorflow-serving/tensorflow-yolov4-tflite/checkpoints/yolov4-416,target=/models/my_model \
+-e MODEL_NAME=my_model \
+-t september9/serving:2.3.0-sse \
+/usr/bin/tf_serving_entrypoint.sh
+
+docker run -p 8500:8500 -p 8501:8501 \
+--mount type=bind,source=/home/ubuntu/keas-edge/models/tensorflow-serving/tensorflow-yolov4-tflite/checkpoints/yolov4-tiny-416,target=/models/my_model \
+-e MODEL_NAME=my_model \
+-t september9/serving:2.3.0-sse \
+/usr/bin/tf_serving_entrypoint.sh
+```
+
+## 问题
+
+### 问题一
+
+下面问题的主要原因是是 libstdc++.so.6 的版本太低，缺少 GLIBCXX_3.4.30，而 TensorFlow 需要该版本才能运行
+
+```bash
+ERROR: /home/ubuntu/keas-edge/models/tensorflow/tensorflow/python/keras/api/BUILD:137:1: Executing genrule //tensorflow/python/keras/api:keras_python_api_gen_compat_v2 failed (Exit 1)
+Traceback (most recent call last):
+  File "/home/ubuntu/.cache/bazel/_bazel_ubuntu/472713329772e6282bc3c41aa5370b66/execroot/org_tensorflow/bazel-out/host/bin/tensorflow/python/keras/api/create_tensorflow.python_api_keras_python_api_gen_compat_v2.runfiles/org_tensorflow/tensorflow/python/pywrap_tensorflow.py", line 64, in <module>
+    from tensorflow.python._pywrap_tensorflow_internal import *
+ImportError: /home/ubuntu/anaconda3/envs/py36/bin/../lib/libstdc++.so.6: version GLIBCXX_3.4.30' not found (required by /home/ubuntu/.cache/bazel/_bazel_ubuntu/472713329772e6282bc3c41aa5370b66/execroot/org_tensorflow/bazel-out/host/bin/tensorflow/python/keras/api/create_tensorflow.python_api_keras_python_api_gen_compat_v2.runfiles/org_tensorflow/tensorflow/python/_pywrap_tensorflow_internal.so)
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/ubuntu/.cache/bazel/_bazel_ubuntu/472713329772e6282bc3c41aa5370b66/execroot/org_tensorflow/bazel-out/host/bin/tensorflow/python/keras/api/create_tensorflow.python_api_keras_python_api_gen_compat_v2.runfiles/org_tensorflow/tensorflow/python/tools/api/generator/create_python_api.py", line 26, in <module>
+    from tensorflow.python.tools.api.generator import doc_srcs
+  File "/home/ubuntu/.cache/bazel/_bazel_ubuntu/472713329772e6282bc3c41aa5370b66/execroot/org_tensorflow/bazel-out/host/bin/tensorflow/python/keras/api/create_tensorflow.python_api_keras_python_api_gen_compat_v2.runfiles/org_tensorflow/tensorflow/python/__init__.py", line 40, in <module>
+    from tensorflow.python.eager import context
+  File "/home/ubuntu/.cache/bazel/_bazel_ubuntu/472713329772e6282bc3c41aa5370b66/execroot/org_tensorflow/bazel-out/host/bin/tensorflow/python/keras/api/create_tensorflow.python_api_keras_python_api_gen_compat_v2.runfiles/org_tensorflow/tensorflow/python/eager/context.py", line 35, in <module>
+    from tensorflow.python import pywrap_tfe
+  File "/home/ubuntu/.cache/bazel/_bazel_ubuntu/472713329772e6282bc3c41aa5370b66/execroot/org_tensorflow/bazel-out/host/bin/tensorflow/python/keras/api/create_tensorflow.python_api_keras_python_api_gen_compat_v2.runfiles/org_tensorflow/tensorflow/python/pywrap_tfe.py", line 28, in <module>
+    from tensorflow.python import pywrap_tensorflow
+  File "/home/ubuntu/.cache/bazel/_bazel_ubuntu/472713329772e6282bc3c41aa5370b66/execroot/org_tensorflow/bazel-out/host/bin/tensorflow/python/keras/api/create_tensorflow.python_api_keras_python_api_gen_compat_v2.runfiles/org_tensorflow/tensorflow/python/pywrap_tensorflow.py", line 83, in <module>
+    raise ImportError(msg)
+ImportError: Traceback (most recent call last):
+  File "/home/ubuntu/.cache/bazel/_bazel_ubuntu/472713329772e6282bc3c41aa5370b66/execroot/org_tensorflow/bazel-out/host/bin/tensorflow/python/keras/api/create_tensorflow.python_api_keras_python_api_gen_compat_v2.runfiles/org_tensorflow/tensorflow/python/pywrap_tensorflow.py", line 64, in <module>
+    from tensorflow.python._pywrap_tensorflow_internal import *
+ImportError: /home/ubuntu/anaconda3/envs/py36/bin/../lib/libstdc++.so.6: version GLIBCXX_3.4.30' not found (required by /home/ubuntu/.cache/bazel/_bazel_ubuntu/472713329772e6282bc3c41aa5370b66/execroot/org_tensorflow/bazel-out/host/bin/tensorflow/python/keras/api/create_tensorflow.python_api_keras_python_api_gen_compat_v2.runfiles/org_tensorflow/tensorflow/python/_pywrap_tensorflow_internal.so)
+
+
+Failed to load the native TensorFlow runtime.
+
+See https://www.tensorflow.org/install/errors
+
+for some common reasons and solutions.  Include the entire stack trace
+above this error message when asking for help.
+Target //tensorflow/tools/pip_package:build_pip_package failed to build
+Use --verbose_failures to see the command lines of failed build steps.
+ERROR: /home/ubuntu/keas-edge/models/tensorflow/tensorflow/python/tools/BUILD:314:1 Executing genrule //tensorflow/python/keras/api:keras_python_api_gen_compat_v2 failed (Exit 1)
+INFO: Elapsed time: 21441.235s, Critical Path: 281.52s
+INFO: 16873 processes: 16873 local.
+FAILED: Build did NOT complete successfully
+```
+
+1. 检查当前 libstdc++.so.6 版本
+
+```bash
+strings /usr/lib/x86_64-linux-gnu/libstdc++.so.6 | grep GLIBCXX
+strings /home/ubuntu/anaconda3/envs/py36/lib/libstdc++.so.6 | grep GLIBCXX
+```
+
+2. 强制 Anaconda 使用系统的 libstdc++.so.6
+
+如果 conda install 无法解决问题，我们可以强制 Anaconda 使用 /usr/lib/x86_64-linux-gnu/ 中的 libstdc++.so.6。
+
+```bash
+# 方法 1：软链接
+mv /home/ubuntu/anaconda3/envs/py36/lib/libstdc++.so.6 /home/ubuntu/anaconda3/envs/py36/lib/libstdc++.so.6.bak
+ln -s /usr/lib/x86_64-linux-gnu/libstdc++.so.6 /home/ubuntu/anaconda3/envs/py36/lib/libstdc++.so.6
+
+# 方法 2: 设置 LD_LIBRARY_PATH 如果不想修改 Anaconda 目录，可以手动设置 LD_LIBRARY_PATH：
+export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH
+
+```
+
+## 文档
+
+- [Building TensorFlow without AVX/AVX2 instructions](https://gist.github.com/talmo/353c4bf86d5ceb89c1b873b486fad3cf)
+- 
